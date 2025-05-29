@@ -6,11 +6,11 @@ import json
 import os
 import smtplib
 from email.mime.text import MIMEText
-import requests
+import plotly.graph_objects as go
 
 # === Konfigurasi Streamlit ===
-st.set_page_config(page_title="Analisa Saham NASDAQ & IHSG", layout="wide")
-st.title("\U0001F4C8 Analisa Saham + Sinyal Beli/Jual + Upload Saham")
+st.set_page_config(page_title="Analisa Saham & Kripto", layout="wide")
+st.title("📈 Analisa Saham & Kripto + Sinyal Beli/Jual + Upload Watchlist")
 
 # === Watchlist ===
 WATCHLIST_FILE = "watchlist.json"
@@ -28,22 +28,22 @@ def save_watchlist(watchlist):
 watchlist = load_watchlist()
 
 with st.sidebar:
-    st.header("⭐ Watchlist Saham")
+    st.header("⭐ Watchlist Saham/Kripto")
     if watchlist:
         for item in watchlist:
             st.markdown(f"- {item}")
     else:
-        st.caption("Belum ada saham.")
+        st.caption("Belum ada kode.")
 
-    st.markdown("## \U0001F4C5 Rentang Tanggal")
+    st.markdown("## 📅 Rentang Tanggal")
     start_date = st.date_input("Dari", datetime.date.today() - datetime.timedelta(days=180))
     end_date = st.date_input("Sampai", datetime.date.today())
 
     fast_mode = st.checkbox("⚡ Fast Screening: Tampilkan hanya BELI/JUAL")
 
 # === Input manual atau upload ===
-st.subheader("\U0001F4E5 Input Kode Saham atau Upload File")
-ticker_input = st.text_input("Masukkan kode saham (contoh: AAPL atau BBCA.JK)", "").upper()
+st.subheader("📥 Input Kode Saham/Kripto atau Upload File")
+ticker_input = st.text_input("Masukkan kode saham atau kripto (contoh: AAPL, BBCA.JK, BTC-USD, ETH-USD)", "").upper()
 
 uploaded_file = st.file_uploader("Atau upload file .csv/.xlsx (dengan kolom 'ticker')", type=["csv", "xlsx"])
 
@@ -92,12 +92,12 @@ def compute_bollinger_bands(series, window=20, num_std=2):
     return upper, lower
 
 # === Notifikasi Email ===
-EMAIL_SENDER = "e.invitiation@gmail.com"
-EMAIL_PASSWORD = "Sjmahpe512"
-EMAIL_RECEIVER = "mustaqimhidayatulloh@gmail.com"
+EMAIL_SENDER = "your_email@gmail.com"
+EMAIL_PASSWORD = "your_app_password"
+EMAIL_RECEIVER = "receiver_email@gmail.com"
 
 def send_email_notification(ticker, signal, price):
-    subject = f"\U0001F4E2 Sinyal {signal} untuk {ticker}"
+    subject = f"📢 Sinyal {signal} untuk {ticker}"
     body = f"Sinyal {signal} terdeteksi untuk {ticker} dengan harga terakhir {price:.2f}."
     msg = MIMEText(body)
     msg['Subject'] = subject
@@ -108,15 +108,14 @@ def send_email_notification(ticker, signal, price):
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
 
-# === Analisa Saham ===
-for ticker in tickers:
-    st.divider()
-    st.markdown(f"## \U0001F4CA Analisa: `{ticker}`")
-    hist = get_data(ticker, start_date, end_date)
+# === Tab Saham & Kripto ===
+tab_saham, tab_kripto = st.tabs(["🏢 Saham", "🔐 Kripto"])
 
+def display_analysis(ticker):
+    hist = get_data(ticker, start_date, end_date)
     if hist.empty:
         st.error("❌ Data tidak ditemukan.")
-        continue
+        return
 
     hist["MA20"] = hist["Close"].rolling(window=20).mean()
     hist["RSI"] = compute_rsi(hist["Close"])
@@ -130,29 +129,53 @@ for ticker in tickers:
     signal = "⚪ Netral"
     signal_color = "gray"
     if last_rsi < 30 and last_close > last_ma:
-        signal = "\U0001F7E2 BELI"
+        signal = "🟢 BELI"
         signal_color = "green"
     elif last_rsi > 70 and last_close < last_ma:
-        signal = "\U0001F534 JUAL"
+        signal = "🔴 JUAL"
         signal_color = "red"
 
     if fast_mode and signal == "⚪ Netral":
-        continue
+        return
 
+    st.markdown(f"## 📊 Analisa: `{ticker}`")
     st.markdown(f"**Sinyal:** <span style='color:{signal_color}; font-size:24px'>{signal}</span>", unsafe_allow_html=True)
-    st.caption(f"\U0001F4CC Harga: {last_close:.2f}, MA20: {last_ma:.2f}, RSI: {last_rsi:.2f}")
+    st.caption(f"📌 Harga: {last_close:.2f}, MA20: {last_ma:.2f}, RSI: {last_rsi:.2f}")
 
-    # Kirim notifikasi jika sinyal beli/jual
-    if signal in ["\U0001F7E2 BELI", "\U0001F534 JUAL"]:
+    if signal in ["🟢 BELI", "🔴 JUAL"]:
         send_email_notification(ticker, signal, last_close)
 
-    # Chart
-    st.line_chart(hist[["Close", "MA20", "BB_UPPER", "BB_LOWER"]])
-    with st.expander("\U0001F4C9 RSI Chart"):
+    # Chart Candlestick + MA + BB
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=hist.index,
+                                 open=hist['Open'], high=hist['High'],
+                                 low=hist['Low'], close=hist['Close'],
+                                 name='Candlestick'))
+    fig.add_trace(go.Scatter(x=hist.index, y=hist['MA20'], mode='lines', name='MA20'))
+    fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_UPPER'], mode='lines', name='BB Upper'))
+    fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_LOWER'], mode='lines', name='BB Lower'))
+    fig.update_layout(title=f"Candlestick Chart - {ticker}", xaxis_title="Tanggal", yaxis_title="Harga")
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("📉 RSI Chart"):
         st.line_chart(hist["RSI"])
-    with st.expander("\U0001F4CA MACD Chart"):
+    with st.expander("📊 MACD Chart"):
         st.line_chart(hist[["MACD", "MACD_SIGNAL"]])
-    with st.expander("\U0001F50A Volume"):
+    with st.expander("🔊 Volume"):
         st.bar_chart(hist["Volume"])
+
+# Jalankan analisa per kategori
+ticker_saham = [t for t in tickers if not t.endswith("-USD")]
+ticker_kripto = [t for t in tickers if t.endswith("-USD")]
+
+with tab_saham:
+    for ticker in ticker_saham:
+        st.divider()
+        display_analysis(ticker)
+
+with tab_kripto:
+    for ticker in ticker_kripto:
+        st.divider()
+        display_analysis(ticker)
 
 st.success("✅ Analisa selesai. Periksa sinyal & grafik di atas.")
