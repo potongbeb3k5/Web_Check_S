@@ -113,8 +113,8 @@ tab_saham, tab_kripto = st.tabs(["🏢 Saham", "🔐 Kripto"])
 
 def display_analysis(ticker):
     hist = get_data(ticker, start_date, end_date)
-    if hist.empty:
-        st.error("❌ Data tidak ditemukan.")
+    if hist.empty or 'Close' not in hist.columns:
+        st.error(f"❌ Data tidak ditemukan untuk {ticker}.")
         return
 
     hist["MA20"] = hist["Close"].rolling(window=20).mean()
@@ -122,16 +122,22 @@ def display_analysis(ticker):
     hist["MACD"], hist["MACD_SIGNAL"] = compute_macd(hist["Close"])
     hist["BB_UPPER"], hist["BB_LOWER"] = compute_bollinger_bands(hist["Close"])
 
+    if hist[["Close", "MA20", "RSI", "MACD", "MACD_SIGNAL"]].dropna().empty:
+        st.warning(f"⚠️ Data historis untuk analisa belum cukup tersedia ({ticker}).")
+        return
+
     last_close = hist["Close"].iloc[-1]
     last_ma = hist["MA20"].iloc[-1]
     last_rsi = hist["RSI"].iloc[-1]
+    last_macd = hist["MACD"].iloc[-1]
+    last_signal = hist["MACD_SIGNAL"].iloc[-1]
 
     signal = "⚪ Netral"
     signal_color = "gray"
-    if last_rsi < 30 and last_close > last_ma:
+    if last_rsi < 40 and last_close > last_ma and last_macd > last_signal:
         signal = "🟢 BELI"
         signal_color = "green"
-    elif last_rsi > 70 and last_close < last_ma:
+    elif last_rsi > 60 and last_close < last_ma and last_macd < last_signal:
         signal = "🔴 JUAL"
         signal_color = "red"
 
@@ -140,7 +146,7 @@ def display_analysis(ticker):
 
     st.markdown(f"## 📊 Analisa: `{ticker}`")
     st.markdown(f"**Sinyal:** <span style='color:{signal_color}; font-size:24px'>{signal}</span>", unsafe_allow_html=True)
-    st.caption(f"📌 Harga: {last_close:.2f}, MA20: {last_ma:.2f}, RSI: {last_rsi:.2f}")
+    st.caption(f"📌 Harga: {last_close:.2f}, MA20: {last_ma:.2f}, RSI: {last_rsi:.2f}, MACD: {last_macd:.2f}, Signal: {last_signal:.2f}")
 
     if signal in ["🟢 BELI", "🔴 JUAL"]:
         send_email_notification(ticker, signal, last_close)
