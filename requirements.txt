@@ -1,6 +1,6 @@
-streamlit>=1.30.0
-rich>=10.14.0
-import yfinance as yf
+streamlit
+yfinance
+rich
 import pandas as pd
 import json
 import os
