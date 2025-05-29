@@ -1,4 +1,3 @@
-# app_saham_lengkap.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -42,14 +41,18 @@ if st.button("⭐ Simpan ke Watchlist"):
         save_watchlist(watchlist)
         st.success(f"{ticker} ditambahkan ke watchlist.")
 
-# === Load data ===
+# === Caching data harga dan info saham ===
 @st.cache_data
-def load_data(ticker):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="6mo")
-    return stock, hist
+def load_price_data(ticker):
+    return yf.Ticker(ticker).history(period="6mo")
 
-stock, hist = load_data(ticker)
+@st.cache_data
+def load_stock_info(ticker):
+    return yf.Ticker(ticker).info
+
+# === Load data ===
+hist = load_price_data(ticker)
+info = load_stock_info(ticker)
 
 if hist.empty:
     st.error("Data tidak ditemukan.")
@@ -57,8 +60,7 @@ if hist.empty:
 
 # === Moving Average & RSI ===
 hist['MA20'] = hist['Close'].rolling(window=20).mean()
-rsi = ta.rsi(hist['Close'], length=14)
-hist['RSI'] = rsi
+hist['RSI'] = ta.rsi(hist['Close'], length=14)
 
 # === Sinyal Beli/Jual ===
 last_close = hist['Close'].iloc[-1]
@@ -86,12 +88,11 @@ with st.expander("📉 RSI"):
 
 # === Info Saham ===
 with st.expander("ℹ️ Ringkasan Saham"):
-    info = stock.info
     st.markdown(f"""
     **Nama:** {info.get('longName', '-')}
-
+    
     **Sektor:** {info.get('sector', '-')}
-
+    
     **Harga Sekarang:** ${info.get('currentPrice', '-')}  
     **Target Harga:** {info.get('targetMeanPrice', '-')}  
     **PER (PE Ratio):** {info.get('trailingPE', '-')}  
