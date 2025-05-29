@@ -1,9 +1,9 @@
 streamlit
 yfinance
 rich
-import pandas as pd
-import json
-import os
+pandas
+json
+os
 
 st.set_page_config(page_title="Saham NASDAQ & IHSG", layout="wide")
 st.title("📊 Analisis Saham + Sinyal Beli/Jual + Watchlist")
