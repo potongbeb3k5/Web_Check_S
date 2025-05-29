@@ -1,12 +1,13 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
+import datetime
 import json
 import os
 
-st.set_page_config(page_title="Saham NASDAQ & IHSG", layout="wide")
-st.title("📊 Analisis Saham + Sinyal Beli/Jual + Watchlist")
+# === Konfigurasi Streamlit ===
+st.set_page_config(page_title="Analisa Saham NASDAQ & IHSG", layout="wide")
+st.title("📈 Analisa Saham + Sinyal Beli/Jual + Upload Saham")
 
 # === Watchlist ===
 WATCHLIST_FILE = "watchlist.json"
@@ -29,73 +30,78 @@ with st.sidebar:
         for item in watchlist:
             st.markdown(f"- {item}")
     else:
-        st.caption("Belum ada saham favorit.")
+        st.caption("Belum ada saham.")
 
-# === Input Saham ===
-ticker = st.text_input("Masukkan kode saham (contoh: AAPL atau BBCA.JK)", "AAPL").upper()
+# === Pilih tanggal ===
+st.sidebar.markdown("## 📅 Rentang Tanggal")
+start_date = st.sidebar.date_input("Dari", datetime.date.today() - datetime.timedelta(days=180))
+end_date = st.sidebar.date_input("Sampai", datetime.date.today())
 
-# Tombol simpan ke watchlist
-if st.button("⭐ Simpan ke Watchlist"):
-    if ticker not in watchlist:
-        watchlist.append(ticker)
-        save_watchlist(watchlist)
-        st.success(f"{ticker} ditambahkan ke watchlist.")
+# === Input manual atau upload ===
+st.subheader("📥 Input Kode Saham atau Upload File")
+ticker_input = st.text_input("Masukkan kode saham (contoh: AAPL atau BBCA.JK)", "").upper()
 
-# === Caching data harga dan info saham ===
-@st.cache_data
-def load_price_data(ticker):
-    return yf.Ticker(ticker).history(period="6mo")
+uploaded_file = st.file_uploader("Atau upload file .csv/.xlsx (dengan kolom 'ticker')", type=["csv", "xlsx"])
 
-@st.cache_data
-def load_stock_info(ticker):
-    return yf.Ticker(ticker).info
+def read_uploaded_file(uploaded_file):
+    if uploaded_file.name.endswith(".csv"):
+        return pd.read_csv(uploaded_file)
+    elif uploaded_file.name.endswith(".xlsx"):
+        return pd.read_excel(uploaded_file)
+    return None
 
-# === Load data ===
-hist = load_price_data(ticker)
-info = load_stock_info(ticker)
-
-if hist.empty:
-    st.error("Data tidak ditemukan.")
-    st.stop()
-
-# === Moving Average & RSI ===
-hist['MA20'] = hist['Close'].rolling(window=20).mean()
-hist['RSI'] = ta.rsi(hist['Close'], length=14)
-
-# === Sinyal Beli/Jual ===
-last_close = hist['Close'].iloc[-1]
-last_ma20 = hist['MA20'].iloc[-1]
-last_rsi = hist['RSI'].iloc[-1]
-
-signal = "-"
-if last_rsi < 30 and last_close > last_ma20:
-    signal = "🟢 **SINYAL BELI**"
-elif last_rsi > 70 and last_close < last_ma20:
-    signal = "🔴 **SINYAL JUAL**"
+if uploaded_file:
+    df_upload = read_uploaded_file(uploaded_file)
+    tickers = df_upload['ticker'].dropna().unique().tolist()
+elif ticker_input:
+    tickers = [ticker_input]
 else:
-    signal = "⚪ **Tunggu / Netral**"
+    tickers = []
 
-st.subheader(f"📢 Sinyal untuk {ticker}: {signal}")
-st.caption(f"📌 RSI: {last_rsi:.2f}, MA20: {last_ma20:.2f}, Harga Terakhir: {last_close:.2f}")
+# === Fungsi Ambil Data & Hitung RSI ===
+@st.cache_data
+def get_data(ticker, start, end):
+    return yf.Ticker(ticker).history(start=start, end=end)
 
-# === Grafik Harga ===
-st.subheader("📈 Grafik Harga + MA")
-st.line_chart(hist[['Close', 'MA20']])
+def compute_rsi(series, window=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window).mean()
+    avg_loss = loss.rolling(window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-# === Indikator RSI ===
-with st.expander("📉 RSI"):
-    st.line_chart(hist['RSI'])
+# === Tampilkan hasil analisa ===
+for ticker in tickers:
+    st.divider()
+    st.markdown(f"## 📊 Analisa: `{ticker}`")
+    hist = get_data(ticker, start_date, end_date)
 
-# === Info Saham ===
-with st.expander("ℹ️ Ringkasan Saham"):
-    st.markdown(f"""
-    **Nama:** {info.get('longName', '-')}
-    
-    **Sektor:** {info.get('sector', '-')}
-    
-    **Harga Sekarang:** ${info.get('currentPrice', '-')}  
-    **Target Harga:** {info.get('targetMeanPrice', '-')}  
-    **PER (PE Ratio):** {info.get('trailingPE', '-')}  
-    **Market Cap:** {info.get('marketCap', '-')}
-    """)
-    st.write(info.get("longBusinessSummary", "-"))
+    if hist.empty:
+        st.error("❌ Data tidak ditemukan.")
+        continue
+
+    hist["MA20"] = hist["Close"].rolling(window=20).mean()
+    hist["RSI"] = compute_rsi(hist["Close"])
+
+    last_close = hist["Close"].iloc[-1]
+    last_ma = hist["MA20"].iloc[-1]
+    last_rsi = hist["RSI"].iloc[-1]
+
+    signal = "⚪ Netral"
+    signal_color = "gray"
+    if last_rsi < 30 and last_close > last_ma:
+        signal = "🟢 BELI"
+        signal_color = "green"
+    elif last_rsi > 70 and last_close < last_ma:
+        signal = "🔴 JUAL"
+        signal_color = "red"
+
+    st.markdown(f"**Sinyal:** <span style='color:{signal_color}; font-size:24px'>{signal}</span>", unsafe_allow_html=True)
+    st.caption(f"📌 Harga: {last_close:.2f}, MA20: {last_ma:.2f}, RSI: {last_rsi:.2f}")
+
+    st.line_chart(hist[["Close", "MA20"]])
+    with st.expander("📉 RSI Chart"):
+        st.line_chart(hist["RSI"])
